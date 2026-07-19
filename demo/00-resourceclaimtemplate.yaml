@@ -1,0 +1,49 @@
+# ResourceClaimTemplate for a VMI network named "kubeovn0" (see 01-vmi.yaml).
+#
+# The naming contract: NicConfig.interfaceName MUST equal
+# domain.PodInterfaceName("kubeovn0") from this repo's
+# sidecar/domain/configurator.go — i.e. the same short hashed pod interface
+# name our sidecar independently recomputes from the VMI's network name in
+# OnDefineDomain. There is no other coordination between the driver and the
+# sidecar; get this string right or the domain's <interface> will point at a
+# device that was never plumbed.
+#
+# This is deliberately NOT kubevirt.io/kubevirt/pkg/network/namescheme's
+# GenerateHashedInterfaceName ("pod" + 11 hex chars = 14 total): that is safe
+# for KubeVirt's own IFNAMSIZ budget, but kube-ovn-dra-driver's vethNames()
+# (pkg/plumbing/plumbing.go) computes containerID[:12-len(ifaceName)] with no
+# bounds check, so anything over 12 chars panics the driver with a negative
+# slice index. Our own PodInterfaceName() stays at "nic" + 8 hex chars = 11.
+#
+# Computed once via:
+#   cd kube-ovn-network-binding-plugin && go run - <<'EOF'
+#   package main
+#   import "github.com/soer3n/kube-ovn-network-binding-plugin/sidecar/domain"
+#   func main() { println(domain.PodInterfaceName("kubeovn0")) }
+#   EOF
+# -> nicdda1950d
+---
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: kubeovn0-claim-template
+  namespace: default
+spec:
+  spec:
+    devices:
+      requests:
+        - name: nic0
+          exactly:
+            deviceClassName: nic.kubeovn.io
+            selectors:
+              - cel:
+                  expression: "device.attributes['nic.kubeovn.io'].subnetName == 'ovn-subnet'"
+            count: 1
+      config:
+        - requests: ["nic0"]
+          opaque:
+            driver: nic.kubeovn.io
+            parameters:
+              apiVersion: nic.resource.kube-ovn.io/v1alpha1
+              kind: NicConfig
+              interfaceName: nicdda1950d

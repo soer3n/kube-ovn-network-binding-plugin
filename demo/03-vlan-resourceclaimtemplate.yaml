@@ -1,0 +1,41 @@
+# ResourceClaimTemplate for a VMI network named "vlan100" (see
+# 04-vlan-vmi.yaml), requesting a NIC on kube-ovn's VLAN underlay subnet
+# "vlan100-subnet" (172.23.0.0/24, tagged vlan100 on the "external"
+# ProviderNetwork's eth1 uplink) instead of the OVN overlay subnet used by
+# 00-resourceclaimtemplate.yaml.
+#
+# Unlike the overlay case, a VLAN underlay port is NOT bound to any OVN
+# Logical Switch Port — traffic egresses the physical/provider bridge
+# (br-external) directly, tagged with vlan100, onto the shared trunk. The
+# host itself has a matching 802.1q sub-interface (eth1.100, 172.23.0.253/24)
+# on that same trunk, so a VM's secondary NIC on this subnet is reachable
+# directly from the host by IP — no NAT, no OVN routing hop.
+#
+# Same naming contract as 00-resourceclaimtemplate.yaml: interfaceName must
+# equal domain.PodInterfaceName("vlan100") from this repo's sidecar, computed
+# via the same one-liner documented there. -> nic1dba2326
+---
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: vlan100-claim-template
+  namespace: default
+spec:
+  spec:
+    devices:
+      requests:
+        - name: nic0
+          exactly:
+            deviceClassName: nic.kubeovn.io
+            selectors:
+              - cel:
+                  expression: "device.attributes['nic.kubeovn.io'].subnetName == 'vlan100-subnet'"
+            count: 1
+      config:
+        - requests: ["nic0"]
+          opaque:
+            driver: nic.kubeovn.io
+            parameters:
+              apiVersion: nic.resource.kube-ovn.io/v1alpha1
+              kind: NicConfig
+              interfaceName: nic1dba2326

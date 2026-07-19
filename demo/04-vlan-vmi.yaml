@@ -1,0 +1,79 @@
+# Demo VMI with a secondary NIC on kube-ovn's VLAN UNDERLAY subnet
+# (vlan100-subnet, 172.23.0.0/24, tagged vlan100 on the "external"
+# ProviderNetwork's eth1 uplink), attached via DRA + this binding plugin —
+# the underlay counterpart to 01-vmi.yaml's OVN overlay demo.
+#
+# Unlike the overlay case, this NIC's traffic never touches br-int/OVN
+# routing at all: the driver's host veth lands directly on br-external as an
+# access port tagged vlan100, egressing the node's physical eth1 trunk. The
+# HOST itself has a matching 802.1q sub-interface on that trunk
+# (eth1.100, 172.23.0.253/24), so once the guest gets its DHCP-assigned
+# 172.23.0.x address, it is reachable directly from the host by IP — no NAT,
+# no OVN hop:
+#
+#   ssh ubuntu@172.23.0.<x>
+#
+# See 03-vlan-resourceclaimtemplate.yaml for the ResourceClaimTemplate and
+# the interfaceName naming-contract explanation.
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachineInstance
+metadata:
+  name: kube-ovn-vlan-vmi
+  namespace: default
+  annotations:
+    kubevirt.io/allow-pod-bridge-network-live-migration: "true"
+    # See the equivalent annotation in 01-vmi.yaml for why this is declared
+    # here rather than assumed by kube-ovn-controller or the sidecar.
+    external.vlan100-subnet.ovn.kubernetes.io/default_route: "false"
+spec:
+  resourceClaims:
+    - name: vlan100-claim
+      resourceClaimTemplateName: vlan100-claim-template
+  networks:
+    - name: default
+      pod: {}
+    - name: vlan100
+      resourceClaim:
+        claimName: vlan100-claim
+        requestName: nic0
+  domain:
+    devices:
+      interfaces:
+        - name: default
+          bridge: {}
+        - name: vlan100
+          binding:
+            name: kube-ovn-nic
+      disks:
+        - name: containerdisk
+          disk:
+            bus: virtio
+        - name: cloudinitdisk
+          disk:
+            bus: virtio
+    resources:
+      requests:
+        memory: 1Gi
+  terminationGracePeriodSeconds: 30
+  volumes:
+    - name: containerdisk
+      containerDisk:
+        image: quay.io/containerdisks/ubuntu:22.04
+    - name: cloudinitdisk
+      cloudInitNoCloud:
+        userData: |-
+          #cloud-config
+          packages:
+            - qemu-guest-agent
+          runcmd:
+            - systemctl enable --now qemu-guest-agent
+          ssh_authorized_keys:
+            - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDSZgXCZBkA33B+pinjmwTYlYWwnii8WWX/V+zx2+Z/m+H903inWpbUxOOf4MmNCJXuftFohdQeTfmRmVT9ZMjQxs4RTcvgRlSIaKgaPF8ZIq3N8Ew0mZC8v5VT4IjMENA9h+OtdAXMI2UeGap7qa0YNTV8KQQUsQqXqouS8nkuHCblV/wNyAMB/PWIoVFA+yy+MSq2aZelaKW9TkF/B9GSYlXzBNilHBUF4Ew9kW5EOeXR1xD0Wgcc7E/H+lNqC0h3LG5m3flZKVLDXG511twZRr+cyogDURet7kTO878MyAdUfEQN7tsq382MoXwS74xtzDUip4l7nfHMbUM2N2QEEsStp8ReP2q79+s0i7TNT8mBkoiiYIHjAb0rRNPC78zfGFybR8Q5dUd67DxlR5EmmMPgP/1SotyfMj0MWF6R7ySDhvUQ8DyN8EwSmlHBQ0/BpKesNAn49Kd489Qm3ZJeYsUI+WrX/iQS2yx7J0r/Hc58oKbcA0aT/fIJRXsI9yUheCVQvkFRB78d0jt4YqUu16SPSWTm9mH1dExA6mD0AL+CwZRY+hiJ8avZfnc2Gu45o/bvsM6+hUTpfY4IdTjdKguz3qXJ3b6gNsOeyU5PKmN2TNFScUIzebh929Z91Y3dQg0wa0Ggc2xFLUPndHRKXmPWmprlr0hd8Sam+G6XjQ== soer3n@soer3n
+        networkData: |-
+          version: 2
+          ethernets:
+            all-en:
+              match:
+                name: "en*"
+              dhcp4: true
