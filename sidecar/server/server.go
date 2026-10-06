@@ -61,6 +61,9 @@ func (s InfoServer) Info(_ context.Context, _ *hooksInfo.InfoParams) (*hooksInfo
 
 type V1alpha3Server struct {
 	Done chan struct{}
+	// MACResolver looks up the MAC of a pod interface; nil means a netlink
+	// lookup in the sidecar's network namespace.
+	MACResolver domain.MACResolver
 }
 
 func (s V1alpha3Server) OnDefineDomain(_ context.Context, params *hooksV1alpha3.OnDefineDomainParams) (*hooksV1alpha3.OnDefineDomainResult, error) {
@@ -70,6 +73,9 @@ func (s V1alpha3Server) OnDefineDomain(_ context.Context, params *hooksV1alpha3.
 	}
 
 	configurator := domain.NewConfigurator(vmi.Spec.Domain.Devices.Interfaces, vmi.Spec.Networks)
+	if s.MACResolver != nil {
+		configurator = domain.NewConfiguratorWithMACResolver(vmi.Spec.Domain.Devices.Interfaces, vmi.Spec.Networks, s.MACResolver)
+	}
 
 	newDomainXML, err := callback.OnDefineDomain(params.GetDomainXML(), configurator)
 	if err != nil {
