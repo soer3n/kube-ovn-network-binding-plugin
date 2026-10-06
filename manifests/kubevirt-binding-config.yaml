@@ -23,4 +23,4 @@ spec:
     network:
       binding:
         kube-ovn-nic:
-          sidecarImage: docker.io/soer3n/kube-ovn-network-binding-plugin:dev
+          sidecarImage: docker.io/soer3n/kube-ovn-network-binding-plugin:v0.1.0

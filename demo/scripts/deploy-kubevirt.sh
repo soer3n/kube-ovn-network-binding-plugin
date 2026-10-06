@@ -39,8 +39,9 @@ echo "Applying the KubeVirt CR (${KUBEVIRT_VERSION}) ..."
 kubectl apply -f "${RELEASE_BASE}/kubevirt-cr.yaml"
 
 echo "Registering ${PLUGIN_IMAGE_NAME} binding + NetworkDevicesWithDRA feature gate ..."
+# The manifest names the released image; the demo uses the locally built one.
 kubectl patch kubevirt kubevirt -n kubevirt --type merge \
-    --patch-file "${REPO_ROOT}/manifests/kubevirt-binding-config.yaml"
+    --patch "$(sed "s#sidecarImage: .*#sidecarImage: ${PLUGIN_IMAGE}#" "${REPO_ROOT}/manifests/kubevirt-binding-config.yaml")"
 
 echo "Waiting for KubeVirt to become Available (this can take a few minutes) ..."
 kubectl wait --for=condition=Available -n kubevirt kv/kubevirt --timeout=300s

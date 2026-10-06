@@ -27,8 +27,9 @@ REPO_ROOT="$(cd -- "${SCRIPTS_DIR}/../.." &> /dev/null && pwd)"
 
 : ${KIND_CLUSTER_NAME:="nic-dra-demo"}
 
-# The registry, image and tag for this plugin's sidecar image. Must match
-# manifests/kubevirt-binding-config.yaml's sidecarImage.
+# The registry, image and tag of the locally built sidecar image. The demo
+# registers it in place of the released image in
+# manifests/kubevirt-binding-config.yaml.
 : ${PLUGIN_IMAGE_REGISTRY:="docker.io/soer3n"}
 : ${PLUGIN_IMAGE_NAME:="kube-ovn-network-binding-plugin"}
 : ${PLUGIN_IMAGE_TAG:="dev"}

@@ -202,6 +202,19 @@ demo/
   README.md
 ```
 
+## Install
+
+Register the released sidecar image (`docker.io/soer3n/kube-ovn-network-binding-plugin:v0.1.0`)
+and the `NetworkDevicesWithDRA` feature gate in KubeVirt:
+
+```bash
+kubectl patch kubevirt kubevirt -n kubevirt --type merge \
+  --patch-file manifests/kubevirt-binding-config.yaml
+```
+
+The kind demo (`make kind-deploy-kubevirt`) registers the locally built
+`:dev` image instead.
+
 ## Build & test
 
 ```bash
