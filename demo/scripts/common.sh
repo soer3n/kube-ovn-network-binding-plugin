@@ -34,7 +34,7 @@ REPO_ROOT="$(cd -- "${SCRIPTS_DIR}/../.." &> /dev/null && pwd)"
 : ${PLUGIN_IMAGE_TAG:="dev"}
 : ${PLUGIN_IMAGE:="${PLUGIN_IMAGE_REGISTRY}/${PLUGIN_IMAGE_NAME}:${PLUGIN_IMAGE_TAG}"}
 
-: ${KUBEVIRT_VERSION:="v1.9.0-rc.0"}
+: ${KUBEVIRT_VERSION:="v1.9.0"}
 
 if [[ -z "${CONTAINER_TOOL}" ]]; then
     if [[ -n "$(which docker)" ]]; then

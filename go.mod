@@ -7,9 +7,9 @@ require (
 	github.com/onsi/gomega v1.39.1
 	github.com/vishvananda/netlink v1.3.1
 	google.golang.org/grpc v1.82.0
-	kubevirt.io/api v1.9.0-rc.0
-	kubevirt.io/client-go v1.9.0-rc.0
-	kubevirt.io/kubevirt v1.9.0-rc.0
+	kubevirt.io/api v1.9.0
+	kubevirt.io/client-go v1.9.0
+	kubevirt.io/kubevirt v1.9.0
 )
 
 require (
