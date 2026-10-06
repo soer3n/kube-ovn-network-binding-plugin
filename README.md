@@ -90,6 +90,29 @@ networking on that interface.
 See `demo/README.md` for the naming contract explained in full, and below
 for what each demo manifest actually demonstrates.
 
+## Migrating to `managedTap` later
+
+Once a KubeVirt release resolves pod interface names for DRA networks in
+`pkg/network/namescheme` (not the case in `v1.9.0` and `v1.10.0-alpha.0`),
+KubeVirt can create the tap and the domain interface itself, and this sidecar
+is no longer needed. The move is not tested yet; expect these steps:
+
+1. **Driver:** `kube-ovn-dra-driver` currently wraps the NIC of every
+   `virt-launcher` pod in its own bridge, tap and DHCP server. With
+   `managedTap`, KubeVirt needs the plain veth, so the driver needs an option
+   to skip that wiring first (not implemented yet).
+2. **Binding registration:** replace `sidecarImage` with
+   `domainAttachmentType: managedTap` in `manifests/kubevirt-binding-config.yaml`.
+3. **Interface names:** set `NicConfig.interfaceName` in the
+   `ResourceClaimTemplate`s to the name KubeVirt's namescheme generates for the
+   network instead of `domain.PodInterfaceName()`.
+4. **Guest addressing:** the driver's DHCP server goes away, so the guest needs
+   another source, e.g. kube-ovn's DHCP on the subnet (`enableDHCP`).
+5. **Restart the VMs**, so their pods are recreated. kube-ovn keeps IP and MAC,
+   since it names the ports after the VM. Exception: when several NICs of a VM
+   share a provider, kube-ovn keys them by `<provider>.<interfaceName>`, so a
+   renamed interface gets a new port and address.
+
 ## Examples
 
 All of these need `kube-ovn-dra-driver` installed and running — it's what

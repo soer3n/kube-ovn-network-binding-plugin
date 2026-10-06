@@ -5,9 +5,7 @@ Prerequisites:
 - kube-ovn with `--enable-dra-nic` (see the driver's README),
 - `kube-ovn-dra-driver` installed (its `DeviceClass nic.kubeovn.io`, created
   by its Helm chart, and the subnets from its own
-  `demo/nic-example/00-kube-ovn-subnets.yaml` — the driver enumerates kube-ovn
-  Subnets once at startup with no watch, so apply subnets *before* the driver
-  starts, or restart its DaemonSet afterwards),
+  `demo/nic-example/00-kube-ovn-subnets.yaml`),
 - KubeVirt v1.9 with this plugin registered via
   `../manifests/kubevirt-binding-config.yaml` (`make kind-deploy-kubevirt`),
 - for `08-dv-vlan-vm.yaml`, CDI and a default StorageClass.
