@@ -13,10 +13,8 @@ secondary NIC to a VM domain.
 > namespace with no Multus involved — but a KubeVirt VM's domain (libvirt/QEMU)
 > never knew that interface existed. KubeVirt's own sidecar-free path for that,
 > `DomainAttachmentType: managedTap`, cannot resolve a pod interface name for a
-> DRA (`resourceClaim`) network as of `kubevirt` `v1.9.0-rc.0` — the naming logic
-> in `pkg/network/namescheme` is gated to Multus networks only (see
-> `kube-ovn-dra-driver`'s [`docs/nic-driver.md`](https://github.com/soer3n/kube-ovn-dra-driver/blob/main/docs/nic-driver.md)
-> for that finding and the *possible* upstream fix it's tracking separately).
+> DRA (`resourceClaim`) network as of KubeVirt `v1.9.0` and `v1.10.0-alpha.0` —
+> the naming logic in `pkg/network/namescheme` only handles Multus networks.
 > This plugin is the interim workaround: a real, working KubeVirt network binding
 > plugin, not a patch to KubeVirt core. If that upstream gap ever closes, plain
 > `managedTap` could replace this plugin entirely for the overlay/underlay cases
@@ -25,18 +23,18 @@ secondary NIC to a VM domain.
 > *this specific* problem anymore.
 
 - **Domain wiring (validated end-to-end):** both the OVN overlay case
-  (`00`/`01`) and the VLAN underlay case (`03`/`04`) boot, get a real
-  DHCP-assigned IP on the DRA-attached secondary NIC, and are reachable —
-  see [Examples](#examples) below. The Multus baseline (`02`) is not this
+  (`00`/`01`/`06`) and the VLAN underlay case (`03`/`04`/`07`/`08`) boot, get a
+  real DHCP-assigned IP on the DRA-attached secondary NIC, keep IP and MAC
+  across VM restarts, and are reachable — see [Examples](#examples) below. The Multus baseline (`02`) is not this
   plugin's code path at all; it exists to isolate plugin/driver-specific bugs
   from anything generic to the OVN pipeline.
 - **Sidecar-registration dependency (validated, not assumed):** removing this
   plugin's entry from `KubeVirtConfiguration` doesn't degrade functionality —
   it blocks the VMI from ever getting a pod at all. See [Proof the sidecar is
   actually required](#proof-the-sidecar-is-actually-required) below.
-- **Integration test suite (not yet written):** `test/integration/` exists as
-  a placeholder; the demo manifests above are currently the only exercised
-  path, run by hand against a kind cluster, not in CI.
+- **Tests:** unit tests cover the domain configurator, the hook server and
+  the domain XML callback (`make test`). The end-to-end path is exercised with
+  the demo manifests against a kind cluster, not in CI.
 
 ## Why this exists
 
@@ -51,7 +49,7 @@ VEP-183, but *something* still has to turn the pod-side interface into a
 domain-visible NIC.
 
 KubeVirt has a built-in, sidecar-free way to do that —
-`DomainAttachmentType: managedTap` — but as of `kubevirt` `v1.9.0-rc.0` it
+`DomainAttachmentType: managedTap` — but as of KubeVirt `v1.9.0` it
 cannot resolve a pod interface name for a DRA network: the naming logic in
 `pkg/network/namescheme` only recognizes Multus networks. This plugin routes
 around that gap: it runs in **pure sidecar mode** (`SidecarImage` set, no
@@ -59,26 +57,19 @@ around that gap: it runs in **pure sidecar mode** (`SidecarImage` set, no
 the interface entirely and hand 100% of the domain XML construction to this
 sidecar's `OnDefineDomain` hook.
 
-## Requirement: kube-ovn with secondary-NIC DRA support
+## Requirement: kube-ovn with DRA NIC support
 
-This plugin's demos depend on `kube-ovn-dra-driver`, which in turn depends on
-kube-ovn changes **not yet in an upstream release** — DHCP options and a
-Logical Switch Port for driver-managed reserved IPs, plus GC-safety fixes so
-kube-ovn's garbage collector doesn't reap those ports out from under a
-running VM (see `kube-ovn-dra-driver`'s own
-[`docs/nic-driver.md`](https://github.com/soer3n/kube-ovn-dra-driver/blob/main/docs/nic-driver.md)
-for the full findings). Build/run kube-ovn from the same fork branch the
-driver requires:
+The demos depend on `kube-ovn-dra-driver`, which in turn needs kube-ovn with
+the experimental `--enable-dra-nic` flag: kube-ovn-controller then allocates
+address and MAC for every NIC the driver's claims request, creates its logical
+switch port, and keeps IP and MAC of a VM's NICs across restarts. That support is proposed upstream and not in a kube-ovn release yet;
+until then use branch `dra-nic-upstream` of
+[github.com/soer3n/kube-ovn](https://github.com/soer3n/kube-ovn). See the
+driver's [README](https://github.com/soer3n/kube-ovn-dra-driver#requirements).
 
-```
-https://github.com/soer3n/kube-ovn   branch: add-dra-support-for-secondary-nics
-```
-
-Without it, `01-vmi.yaml`/`04-vlan-vmi.yaml`'s secondary NIC never receives a
-DHCP lease and any Logical Switch Port `kube-ovn-dra-driver` creates for it
-gets garbage-collected within minutes — the domain-XML wiring this plugin
-does succeeds regardless, but the guest never gets usable networking on that
-interface.
+Without it, the VM's secondary NIC never gets an address — the domain-XML
+wiring this plugin does succeeds regardless, but the guest never gets usable
+networking on that interface.
 
 ## How it works
 
@@ -87,19 +78,14 @@ interface.
    `ResourceClaim`/`ResourceClaimTemplate` request config.
 2. This plugin and the claim template author agree on that name ahead of
    time by both computing `domain.PodInterfaceName(<VMI network name>)`
-   (`sidecar/domain/configurator.go` in this repo) — deliberately **not**
-   KubeVirt's own `namescheme.GenerateHashedInterfaceName` (`"pod"` + 11 hex
-   = 14 chars): that's sized for KubeVirt's own IFNAMSIZ budget, but
-   `kube-ovn-dra-driver`'s `vethNames()` computes
-   `containerID[:12-len(ifaceName)]` with a 12-char ceiling, so anything
-   over that panicked the driver before it returned a proper error instead.
-   This plugin's own scheme (`"nic"` + 8 hex = 11 chars) leaves headroom
-   under that limit; see `demo/README.md` for the full explanation.
+   (`sidecar/domain/configurator.go` in this repo): `"nic"` + 8 hex = 11
+   characters, within the 15 characters the driver accepts for an interface
+   name.
 3. On `OnDefineDomain`, the sidecar finds every VMI interface with
    `binding.name: kube-ovn-nic`, resolves its network, recomputes the same
-   hashed name, and appends a libvirt `<interface type="ethernet">
-   <target dev="..."/>` element pointing at the interface
-   `kube-ovn-dra-driver` already plumbed.
+   hashed name, reads the MAC kube-ovn assigned from that pod interface, and
+   appends a libvirt `<interface type="ethernet"> <target dev="..."/>`
+   element pointing at the tap `kube-ovn-dra-driver` already plumbed.
 
 See `demo/README.md` for the naming contract explained in full, and below
 for what each demo manifest actually demonstrates.
@@ -116,13 +102,17 @@ prerequisites each scenario below assumes are already applied.
 | Files | Network type | What it shows |
 | --- | --- | --- |
 | `00-resourceclaimtemplate.yaml` + `01-vmi.yaml` | OVN overlay (`ovn-subnet`, routed through `br-int`/OVN) | The primary DRA + sidecar path: a VMI gets a Kube-OVN secondary NIC with no Multus at all — DRA allocates the device, `kube-ovn-dra-driver`'s NRI hook wires the dataplane, this plugin wires the domain. |
-| `03-vlan-resourceclaimtemplate.yaml` + `04-vlan-vmi.yaml` | VLAN underlay (`vlan100-subnet`, tagged onto a `ProviderNetwork`'s physical uplink, no OVN routing hop) | The same DRA + sidecar path against an underlay subnet instead of an overlay one — same driver, same plugin, only the `ResourceClaimTemplate`'s device selector and the VMI's network name change. Because underlay traffic never touches OVN routing, a VM on this subnet is reachable directly by IP from anything else on the same VLAN trunk (e.g. the kind host itself, if it has a matching 802.1q sub-interface) — no NAT, no OVN hop. |
+| `06-vmi-2.yaml` | OVN overlay | A second VM sharing `00`'s claim template, for VM-to-VM traffic over the DRA NIC. |
+| `03-vlan-resourceclaimtemplate.yaml` + `04-vlan-vmi.yaml` (+ `07-vlan-vmi-2.yaml`) | VLAN underlay (`vlan100-subnet`, bridged by kube-ovn's localnet port onto a `ProviderNetwork`'s physical uplink) | The same DRA + sidecar path against an underlay subnet instead of an overlay one — same driver, same plugin, only the `ResourceClaimTemplate`'s device selector and the VMI's network name change. A VM on this subnet is reachable by IP from anything else on the same VLAN, without NAT. |
+| `08-dv-vlan-vm.yaml` | VLAN underlay | A VM with a CDI DataVolume root disk; disk contents, IP and MAC survive stop/start. Needs CDI. |
+| `05-ssh-bastion.yaml` | — | An SSH bastion pod for reaching the VMs by their in-cluster IPs. |
 | `02-multus-comparison-vmi.yaml` | OVN overlay, via Multus + KubeVirt's built-in `bridge` binding (`managedTap`) — **not** this plugin | A deliberately non-DRA baseline on the *same* subnet as `01-vmi.yaml`, used to isolate driver/plugin-specific bugs from anything generic to the OVN pipeline or subnet DHCP config. Needs a `NetworkAttachmentDefinition` (kube-ovn CNI, `provider` matching the target Subnet's `spec.provider`) instead of a `ResourceClaimTemplate` — no DRA, no `kube-ovn-dra-driver`, no this plugin. |
 
 `demo/README.md` walks through the naming contract and apply/verify steps
 for the overlay case in detail; the VLAN and Multus-comparison manifests
 follow the same apply/verify pattern with the CIDR and interface names
-swapped in.
+swapped in. The VM manifests embed a demo SSH public key in their cloud-init;
+replace it with your own.
 
 ### Proof the sidecar is actually required
 
@@ -159,15 +149,18 @@ sidecar/
   server/server.go     # Info() and OnDefineDomain()/PreCloudInitIso()/Shutdown() implementations
   callback/callback.go # generic unmarshal -> mutate -> remarshal helper for the domain XML
   domain/configurator.go # the actual interface-construction logic
-  Containerfile
+  Dockerfile
 manifests/
   kubevirt-binding-config.yaml # KubeVirtConfiguration patch registering this plugin
 demo/
-  00-resourceclaimtemplate.yaml     # OVN overlay: ResourceClaimTemplate
-  01-vmi.yaml                       # OVN overlay: VMI (DRA + this plugin)
-  02-multus-comparison-vmi.yaml     # OVN overlay via Multus + managedTap — no DRA, no this plugin
+  00-resourceclaimtemplate.yaml      # OVN overlay: ResourceClaimTemplate
+  01-vmi.yaml, 06-vmi-2.yaml         # OVN overlay: VMs (DRA + this plugin)
+  02-multus-comparison-vmi.yaml      # OVN overlay via Multus + bridge binding — no DRA, no this plugin
   03-vlan-resourceclaimtemplate.yaml # VLAN underlay: ResourceClaimTemplate
-  04-vlan-vmi.yaml                  # VLAN underlay: VMI (DRA + this plugin)
+  04-vlan-vmi.yaml, 07-vlan-vmi-2.yaml # VLAN underlay: VMs (DRA + this plugin)
+  08-dv-vlan-vm.yaml                 # VLAN underlay: VM with a DataVolume root disk
+  05-ssh-bastion.yaml                # SSH bastion pod
+  scripts/                           # image build and KubeVirt deployment for kind
   README.md
 ```
 

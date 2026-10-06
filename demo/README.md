@@ -1,12 +1,27 @@
-# Demo: a KubeVirt VMI with a Kube-OVN secondary NIC via DRA
+# Demo: KubeVirt VMs with Kube-OVN secondary NICs via DRA
 
-Prerequisites: a cluster with `kube-ovn-dra-driver` installed (its
-`DeviceClass nic.kubeovn.io`, created by its Helm chart, and the `ovn-subnet`
-Subnet from its own `demo/nic-example/00-kube-ovn-subnets.yaml` — the driver
-enumerates kube-ovn Subnets once at startup with no watch, so apply subnets
-*before* the driver starts, or restart its DaemonSet afterwards), and
-KubeVirt installed with this plugin registered via
-`../manifests/kubevirt-binding-config.yaml`.
+Prerequisites:
+
+- kube-ovn with `--enable-dra-nic` (see the driver's README),
+- `kube-ovn-dra-driver` installed (its `DeviceClass nic.kubeovn.io`, created
+  by its Helm chart, and the subnets from its own
+  `demo/nic-example/00-kube-ovn-subnets.yaml` — the driver enumerates kube-ovn
+  Subnets once at startup with no watch, so apply subnets *before* the driver
+  starts, or restart its DaemonSet afterwards),
+- KubeVirt v1.9 with this plugin registered via
+  `../manifests/kubevirt-binding-config.yaml` (`make kind-deploy-kubevirt`),
+- for `08-dv-vlan-vm.yaml`, CDI and a default StorageClass.
+
+| Files | What it shows |
+| --- | --- |
+| `00` + `01` (+ `06`) | VMs with a NIC on the OVN overlay subnet `ovn-subnet`; `06` is a second VM for VM-to-VM traffic |
+| `03` + `04` (+ `07`) | The same on the VLAN underlay subnet `vlan100-subnet`, reachable from the FRR gateway and the host |
+| `03` + `08` | A VM with a CDI DataVolume root disk on `vlan100-subnet`; disk, IP and MAC survive stop/start |
+| `02` | Baseline without DRA: the same subnet through Multus and KubeVirt's `bridge` binding |
+| `05` | An SSH bastion pod for reaching the VMs by their in-cluster IPs |
+
+The VM manifests embed a demo SSH public key in their cloud-init; replace it
+with your own.
 
 ## The naming contract
 
@@ -25,14 +40,8 @@ runtime — it is agreed ahead of time:
    the same name from the VMI object it receives in `OnDefineDomain`, and
    points the domain's `<interface type="ethernet">` at that device name.
 
-This is deliberately **not** `kubevirt.io/kubevirt/pkg/network/namescheme`'s
-`GenerateHashedInterfaceName` (`"pod"` + 11 hex chars = 14 total). That's
-sized for KubeVirt's own IFNAMSIZ budget, but `kube-ovn-dra-driver`'s
-`vethNames()` (`pkg/plumbing/plumbing.go`) computes
-`containerID[:12-len(ifaceName)]`, so an `ifaceName` over 12 characters
-doesn't fit that scheme (it now returns a clear error instead of the panic it
-used to — see below). This plugin's own `PodInterfaceName()` stays at `"nic"`
-+ 8 hex chars = 11 characters to leave headroom under that limit.
+`PodInterfaceName()` is `"nic"` + 8 hex chars = 11 characters, within the 15
+characters (IFNAMSIZ) the driver accepts for `NicConfig.interfaceName`.
 
 If you rename the VMI network, recompute the name and update the
 `ResourceClaimTemplate` — the two sides never talk to each other directly.
@@ -52,9 +61,9 @@ through the NRI `RunPodSandbox` event), `Attach` additionally renames the
 veth out of the way, creates a Linux bridge + a real tap device inside the
 pod netns, and enslaves both to it — mirroring KubeVirt's own built-in
 `bridge`/`managedTap` binding internally. The tap is named `IfaceName` (the
-same contract name above), so **this plugin needed no changes** for that —
-its domain XML already targeted the right name; the name just refers to a
-tap now instead of a veth.
+same contract name above), so the domain XML targets the tap. The driver
+also runs a small DHCP server on that bridge, which hands the guest the
+IPv4 address kube-ovn-controller allocated for the NIC.
 
 One more real gotcha, also fixed in the driver: `vishvananda/netlink`'s
 `Tuntap` creation doesn't go through rtnetlink — it opens `/dev/net/tun` and
@@ -68,8 +77,9 @@ that one call.
 ## Apply
 
 ```bash
-kubectl apply -f 00-resourceclaimtemplate.yaml
-kubectl apply -f 01-vmi.yaml
+kubectl apply -f 00-resourceclaimtemplate.yaml -f 01-vmi.yaml -f 06-vmi-2.yaml
+kubectl apply -f 03-vlan-resourceclaimtemplate.yaml -f 04-vlan-vmi.yaml -f 07-vlan-vmi-2.yaml
+kubectl apply -f 08-dv-vlan-vm.yaml   # needs CDI
 ```
 
 ## Verify

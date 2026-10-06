@@ -22,7 +22,7 @@ fmt:
 	gofmt -l .
 
 image:
-	docker build -f sidecar/Containerfile -t $(IMAGE):$(TAG) .
+	docker build -f sidecar/Dockerfile -t $(IMAGE):$(TAG) .
 
 push: image
 	docker push $(IMAGE):$(TAG)
@@ -30,7 +30,7 @@ push: image
 clean:
 	rm -f kube-ovn-network-binding-sidecar
 
-## kind-build-plugin-image: build this plugin's sidecar image (see sidecar/Containerfile).
+## kind-build-plugin-image: build this plugin's sidecar image (see sidecar/Dockerfile).
 kind-build-plugin-image:
 	KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) $(SCRIPTS_DIR)/build-plugin-image.sh
 

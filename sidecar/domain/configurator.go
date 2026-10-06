@@ -28,13 +28,10 @@ import (
 // sidecarImage under KubeVirtConfiguration.spec.configuration.network.binding.
 const BindingName = "kube-ovn-nic"
 
-// podInterfaceNamePrefix + podInterfaceNameHashLen must stay well under 12
-// characters: kube-ovn-dra-driver's vethNames() (pkg/plumbing/plumbing.go)
-// computes cid[:12-len(ifaceName)] with no bounds check, so an ifaceName
-// longer than 12 chars panics with a negative slice index. KubeVirt's own
-// namescheme.GenerateHashedInterfaceName produces 14-char names ("pod" + 11
-// hex chars) — safe for KubeVirt's own IFNAMSIZ budget, but too long for
-// this driver's tighter one. Do not reuse it here.
+// podInterfaceNamePrefix + podInterfaceNameHashLength hex characters give an
+// 11-character name, within the 15 characters (IFNAMSIZ) kube-ovn-dra-driver
+// accepts for NicConfig.interfaceName. Changing the scheme invalidates the
+// interface names in existing ResourceClaimTemplates.
 const (
 	podInterfaceNamePrefix     = "nic"
 	podInterfaceNameHashLength = 8
@@ -93,7 +90,7 @@ func netlinkMACResolver(podIfaceName string) (string, error) {
 // a given VMI network. This must match the NicConfig.interfaceName set on the
 // ResourceClaim/ResourceClaimTemplate backing that network (see demo/ for an
 // example). The result is always podInterfaceNamePrefix + 8 hex chars = 11
-// characters, safely under kube-ovn-dra-driver's 12-character budget.
+// characters.
 func PodInterfaceName(networkName string) string {
 	hash := sha256.Sum256([]byte(networkName))
 	return fmt.Sprintf("%s%x", podInterfaceNamePrefix, hash[:podInterfaceNameHashLength/2])
@@ -133,7 +130,7 @@ func (c *Configurator) Mutate(domainSpec *domainschema.DomainSpec) (*domainschem
 		if !exists {
 			return nil, fmt.Errorf("no network found for interface %q", iface.Name)
 		}
-		if network.NetworkSource.ResourceClaim == nil {
+		if network.ResourceClaim == nil {
 			return nil, fmt.Errorf("network %q for interface %q is not a DRA (resourceClaim) network", network.Name, iface.Name)
 		}
 

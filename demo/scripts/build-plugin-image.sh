@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Builds the sidecar image from sidecar/Containerfile.
+# Builds the sidecar image from sidecar/Dockerfile.
 #
 # Usage: build-plugin-image.sh
 
