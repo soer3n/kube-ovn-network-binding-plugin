@@ -1,4 +1,4 @@
-IMAGE ?= ghcr.io/soer3n/kube-ovn-network-binding-plugin
+IMAGE ?= docker.io/soer3n/kube-ovn-network-binding-plugin
 TAG ?= dev
 
 SCRIPTS_DIR       ?= $(CURDIR)/demo/scripts

@@ -169,5 +169,12 @@ demo/
 ```bash
 make test
 make build
-make image
+make image    # docker.io/soer3n/kube-ovn-network-binding-plugin:dev
 ```
+
+CI lints and tests every push and pull request. `.github/workflows/image.yaml`
+builds the sidecar image for `linux/amd64` and `linux/arm64` and pushes it to
+`docker.io/soer3n/kube-ovn-network-binding-plugin` on pushes to `main` (tags
+`main`, `sha-<commit>`) and on `v*` tags (`v<version>`, `v<major>.<minor>`,
+`latest`). Pushing needs the repository secrets `DOCKERHUB_USERNAME` and
+`DOCKERHUB_TOKEN`.

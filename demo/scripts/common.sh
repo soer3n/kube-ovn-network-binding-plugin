@@ -29,7 +29,7 @@ REPO_ROOT="$(cd -- "${SCRIPTS_DIR}/../.." &> /dev/null && pwd)"
 
 # The registry, image and tag for this plugin's sidecar image. Must match
 # manifests/kubevirt-binding-config.yaml's sidecarImage.
-: ${PLUGIN_IMAGE_REGISTRY:="ghcr.io/soer3n"}
+: ${PLUGIN_IMAGE_REGISTRY:="docker.io/soer3n"}
 : ${PLUGIN_IMAGE_NAME:="kube-ovn-network-binding-plugin"}
 : ${PLUGIN_IMAGE_TAG:="dev"}
 : ${PLUGIN_IMAGE:="${PLUGIN_IMAGE_REGISTRY}/${PLUGIN_IMAGE_NAME}:${PLUGIN_IMAGE_TAG}"}
