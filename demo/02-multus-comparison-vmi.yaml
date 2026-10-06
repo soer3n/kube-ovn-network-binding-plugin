@@ -1,15 +1,26 @@
 # Comparison VMI: same ovn-subnet, but the secondary NIC is attached via
-# Multus + KubeVirt's built-in "bridge" binding (real managedTap code path)
-# instead of our DRA + sidecar binding plugin. Used to isolate whether the
-# guest-DHCP failure on the DRA-attached secondary NIC is caused by our
-# sidecar/driver wiring or by something generic (OVN pipeline, subnet DHCP
-# config, netns behavior) that would affect ANY secondary NIC on this subnet.
+# Multus + KubeVirt's built-in "bridge" binding instead of DRA + this binding
+# plugin. A baseline to tell problems of the DRA path apart from anything
+# generic (OVN pipeline, subnet DHCP config) that would affect ANY secondary
+# NIC on this subnet. Needs Multus.
 #
-# The NetworkAttachmentDefinition "ovn-subnet" (see ../demo/nad-ovn-subnet.yaml
-# equivalent applied ad hoc) uses kube-ovn's CNI plugin with
-# provider: "ovn-subnet.default.ovn", matching the existing Subnet's
-# spec.provider so this attaches to the exact same logical switch/DHCP config
-# as the DRA demo.
+# The NetworkAttachmentDefinition uses kube-ovn's CNI plugin with
+# provider "ovn-subnet.default.ovn", matching the Subnet's spec.provider, so
+# this attaches to the same logical switch and DHCP config as the DRA demo.
+---
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: ovn-subnet
+  namespace: default
+spec:
+  config: |-
+    {
+      "cniVersion": "0.3.1",
+      "type": "kube-ovn",
+      "server_socket": "/run/openvswitch/kube-ovn-daemon.sock",
+      "provider": "ovn-subnet.default.ovn"
+    }
 ---
 apiVersion: kubevirt.io/v1
 kind: VirtualMachineInstance

@@ -5,12 +5,9 @@
 # 100% of the domain XML construction to this sidecar's OnDefineDomain hook.
 #
 # This deliberately does NOT use domainAttachmentType: managedTap — as of
-# kubevirt v1.9.0-rc.0, KubeVirt's built-in managedTap/tap attachment cannot
-# resolve a pod interface name for a DRA (resourceClaim) network, because
-# pkg/network/namescheme is gated to Multus networks only. See the upstream
-# namescheme patch tracked separately (kube-ovn-network-binding-plugin#1 /
-# the sibling namescheme-dra-networks branch) for the long-term fix; this
-# plugin does not depend on it landing.
+# KubeVirt v1.9.0 and v1.10.0-alpha.0, KubeVirt's built-in managedTap
+# attachment cannot resolve a pod interface name for a DRA (resourceClaim)
+# network, because pkg/network/namescheme only handles Multus networks.
 #
 # Apply with: kubectl patch kubevirt kubevirt -n kubevirt --type merge --patch-file manifests/kubevirt-binding-config.yaml
 apiVersion: kubevirt.io/v1

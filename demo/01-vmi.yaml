@@ -1,16 +1,18 @@
-# Demo VMI with one Kube-OVN secondary NIC attached via DRA + this binding
-# plugin, instead of Multus.
+# Demo VM (wrapping a VMI with one Kube-OVN secondary NIC attached via DRA +
+# this binding plugin, instead of Multus) — KubeVirt creates and owns the
+# actual VMI from spec.template, so nothing here talks to the driver/sidecar
+# any differently than a bare VMI would.
 #
-# spec.resourceClaims[].name ("kubeovn0-claim") is an internal VMI-scoped
-# handle; spec.networks[].resourceClaim.claimName references it (validated by
-# kubevirt's admission — see pkg/network/admitter/dra.go
-# validateDRANetworkClaimReference). requestName ("nic0") must match the
-# request name in 00-resourceclaimtemplate.yaml.
+# spec.template.spec.resourceClaims[].name ("kubeovn0-claim") is an internal
+# VMI-scoped handle; spec.template.spec.networks[].resourceClaim.claimName
+# references it (validated by kubevirt's admission — see
+# pkg/network/admitter/dra.go validateDRANetworkClaimReference). requestName
+# ("nic0") must match the request name in 00-resourceclaimtemplate.yaml.
 #
-# domain.devices.interfaces[].binding.name ("kube-ovn-nic") must match the key
-# registered in manifests/kubevirt-binding-config.yaml. Per
-# validateDRANetworkInterfaceBinding, a DRA network's interface must be SRIOV
-# or have Binding set — Binding is satisfied here.
+# spec.template.spec.domain.devices.interfaces[].binding.name ("kube-ovn-nic")
+# must match the key registered in manifests/kubevirt-binding-config.yaml.
+# Per validateDRANetworkInterfaceBinding, a DRA network's interface must be
+# SRIOV or have Binding set — Binding is satisfied here.
 #
 # The primary interface uses "bridge" binding (KubeVirt's
 # PermitBridgeInterfaceOnPodNetwork defaults to true). Kube-OVN has
@@ -19,82 +21,115 @@
 # https://kubeovn.github.io/docs/v1.15.x/en/kubevirt/live-migration/.
 ---
 apiVersion: kubevirt.io/v1
-kind: VirtualMachineInstance
+kind: VirtualMachine
 metadata:
   name: kube-ovn-dra-vmi
   namespace: default
-  annotations:
-    kubevirt.io/allow-pod-bridge-network-live-migration: "true"
-    # Whether THIS network should carry the pod's default route is
-    # VMI-topology knowledge only the VMI author has — neither
-    # kube-ovn-controller nor this binding plugin's sidecar guesses it, so it
-    # belongs here, not hardcoded into their code. KubeVirt propagates VMI
-    # metadata.annotations onto the generated virt-launcher pod (same
-    # mechanism as the live-migration annotation above), so this becomes a
-    # plain pod annotation any consumer (present or future) can read
-    # directly, in the exact key kube-ovn's own daemon/handler.go already
-    # uses for regular CNI-attached pods (see
-    # util.DefaultRouteAnnotationTemplate). "false" here is also already the
-    # driver's own unconditional behavior for secondary NICs
-    # (configurePodIface refuses to install a default route on them
-    # regardless), so this is documentation of that fact, not new behavior.
-    ovn-subnet.default.ovn.kubernetes.io/default_route: "false"
 spec:
-  resourceClaims:
-    - name: kubeovn0-claim
-      resourceClaimTemplateName: kubeovn0-claim-template
-  networks:
-    - name: default
-      pod: {}
-    - name: kubeovn0
-      resourceClaim:
-        claimName: kubeovn0-claim
-        requestName: nic0
-  domain:
-    devices:
-      interfaces:
+  # VirtualMachine wraps the VMI in KubeVirt's standard lifecycle object:
+  # `kubectl get vm`, `virtctl start/stop/restart`, and automatic
+  # recreation if the VMI is ever deleted out from under it. Everything
+  # below spec.template.spec is byte-for-byte the same VMI spec this file
+  # used to define directly — KubeVirt generates the identical VMI from
+  # this template, so the resourceClaims/networks/domain/volumes contract
+  # with the driver and this plugin's sidecar is completely unaffected.
+  runStrategy: Always
+  template:
+    metadata:
+      annotations:
+        kubevirt.io/allow-pod-bridge-network-live-migration: "true"
+        # Whether THIS network should carry the pod's default route is
+        # VMI-topology knowledge only the VMI author has — neither
+        # kube-ovn-controller nor this binding plugin's sidecar guesses it, so it
+        # belongs here, not hardcoded into their code. KubeVirt propagates VMI
+        # metadata.annotations onto the generated virt-launcher pod (same
+        # mechanism as the live-migration annotation above), so this becomes a
+        # plain pod annotation any consumer (present or future) can read
+        # directly, in the exact key kube-ovn's own daemon/handler.go already
+        # uses for regular CNI-attached pods (see
+        # util.DefaultRouteAnnotationTemplate). "false" here is also already the
+        # driver's own unconditional behavior for secondary NICs
+        # (configurePodIface refuses to install a default route on them
+        # regardless), so this is documentation of that fact, not new behavior.
+        ovn-subnet.default.ovn.kubernetes.io/default_route: "false"
+    spec:
+      resourceClaims:
+        - name: kubeovn0-claim
+          resourceClaimTemplateName: kubeovn0-claim-template
+      networks:
         - name: default
-          bridge: {}
+          pod: {}
         - name: kubeovn0
-          binding:
-            name: kube-ovn-nic
-      disks:
+          resourceClaim:
+            claimName: kubeovn0-claim
+            requestName: nic0
+      domain:
+        devices:
+          interfaces:
+            - name: default
+              bridge: {}
+            - name: kubeovn0
+              binding:
+                name: kube-ovn-nic
+          disks:
+            - name: containerdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+        resources:
+          requests:
+            memory: 1Gi
+      terminationGracePeriodSeconds: 30
+      volumes:
         - name: containerdisk
-          disk:
-            bus: virtio
+          containerDisk:
+            image: quay.io/containerdisks/ubuntu:22.04
         - name: cloudinitdisk
-          disk:
-            bus: virtio
-    resources:
-      requests:
-        memory: 1Gi
-  terminationGracePeriodSeconds: 30
-  volumes:
-    - name: containerdisk
-      containerDisk:
-        image: quay.io/containerdisks/ubuntu:22.04
-    - name: cloudinitdisk
-      cloudInitNoCloud:
-        # Real cloud-init (unlike Cirros's minimal datasource) applies a
-        # top-level ssh_authorized_keys to the distro's default user, which
-        # for this official Ubuntu containerdisk is "ubuntu".
-        # Login: ssh ubuntu@<vmi-ip>.
-        userData: |-
-          #cloud-config
-          packages:
-            - qemu-guest-agent
-          runcmd:
-            - systemctl enable --now qemu-guest-agent
-          ssh_authorized_keys:
-            - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDSZgXCZBkA33B+pinjmwTYlYWwnii8WWX/V+zx2+Z/m+H903inWpbUxOOf4MmNCJXuftFohdQeTfmRmVT9ZMjQxs4RTcvgRlSIaKgaPF8ZIq3N8Ew0mZC8v5VT4IjMENA9h+OtdAXMI2UeGap7qa0YNTV8KQQUsQqXqouS8nkuHCblV/wNyAMB/PWIoVFA+yy+MSq2aZelaKW9TkF/B9GSYlXzBNilHBUF4Ew9kW5EOeXR1xD0Wgcc7E/H+lNqC0h3LG5m3flZKVLDXG511twZRr+cyogDURet7kTO878MyAdUfEQN7tsq382MoXwS74xtzDUip4l7nfHMbUM2N2QEEsStp8ReP2q79+s0i7TNT8mBkoiiYIHjAb0rRNPC78zfGFybR8Q5dUd67DxlR5EmmMPgP/1SotyfMj0MWF6R7ySDhvUQ8DyN8EwSmlHBQ0/BpKesNAn49Kd489Qm3ZJeYsUI+WrX/iQS2yx7J0r/Hc58oKbcA0aT/fIJRXsI9yUheCVQvkFRB78d0jt4YqUu16SPSWTm9mH1dExA6mD0AL+CwZRY+hiJ8avZfnc2Gu45o/bvsM6+hUTpfY4IdTjdKguz3qXJ3b6gNsOeyU5PKmN2TNFScUIzebh929Z91Y3dQg0wa0Ggc2xFLUPndHRKXmPWmprlr0hd8Sam+G6XjQ== soer3n@soer3n
-        # kubeovn0's IP is dynamically IPAM-allocated per claim instance, so it
-        # can't be hardcoded here — match by wildcard interface name instead
-        # and let kube-ovn's OVN DHCP server (enabled on ovn-subnet) hand out
-        # whatever IP it already reserved for this logical switch port.
-        networkData: |-
-          version: 2
-          ethernets:
-            all-en:
-              match:
-                name: "en*"
-              dhcp4: true
+          cloudInitNoCloud:
+            # Real cloud-init (unlike Cirros's minimal datasource) applies a
+            # top-level ssh_authorized_keys to the distro's default user, which
+            # for this official Ubuntu containerdisk is "ubuntu".
+            # Login: ssh ubuntu@<vmi-ip>.
+            userData: |-
+              #cloud-config
+              packages:
+                - qemu-guest-agent
+              runcmd:
+                - systemctl enable --now qemu-guest-agent
+              ssh_authorized_keys:
+                - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDSZgXCZBkA33B+pinjmwTYlYWwnii8WWX/V+zx2+Z/m+H903inWpbUxOOf4MmNCJXuftFohdQeTfmRmVT9ZMjQxs4RTcvgRlSIaKgaPF8ZIq3N8Ew0mZC8v5VT4IjMENA9h+OtdAXMI2UeGap7qa0YNTV8KQQUsQqXqouS8nkuHCblV/wNyAMB/PWIoVFA+yy+MSq2aZelaKW9TkF/B9GSYlXzBNilHBUF4Ew9kW5EOeXR1xD0Wgcc7E/H+lNqC0h3LG5m3flZKVLDXG511twZRr+cyogDURet7kTO878MyAdUfEQN7tsq382MoXwS74xtzDUip4l7nfHMbUM2N2QEEsStp8ReP2q79+s0i7TNT8mBkoiiYIHjAb0rRNPC78zfGFybR8Q5dUd67DxlR5EmmMPgP/1SotyfMj0MWF6R7ySDhvUQ8DyN8EwSmlHBQ0/BpKesNAn49Kd489Qm3ZJeYsUI+WrX/iQS2yx7J0r/Hc58oKbcA0aT/fIJRXsI9yUheCVQvkFRB78d0jt4YqUu16SPSWTm9mH1dExA6mD0AL+CwZRY+hiJ8avZfnc2Gu45o/bvsM6+hUTpfY4IdTjdKguz3qXJ3b6gNsOeyU5PKmN2TNFScUIzebh929Z91Y3dQg0wa0Ggc2xFLUPndHRKXmPWmprlr0hd8Sam+G6XjQ== soer3n@soer3n
+            # Both NICs get a same-metric default route via DHCP — ovn-subnet
+            # still advertises a gateway despite the default_route:false
+            # annotation above — so the guest kernel ECMP-hashes egress traffic
+            # across both, silently dropping whatever lands on enp2s0. Dropping
+            # enp2s0's route here makes routing deterministic and keeps enp1s0
+            # (ovn-default, NAT=true) as the sole default route.
+            #
+            # Earlier this file instead dropped enp1s0's route, leaving
+            # ovn-subnet's gateway as the only default route — that was reverted:
+            # even with natOutgoing enabled on ovn-subnet afterward (and the
+            # per-node NAT ipset correctly updated), egress ICMP from the guest
+            # never reached the node's physical uplink at all — confirmed via
+            # tcpdump on eth0 during a live ping, which captured nothing for that
+            # traffic. The drop happens inside OVN's logical pipeline
+            # (br-int flows / distributed gateway port), below the iptables
+            # MASQUERADE rule that was verified correctly configured. ovn-subnet
+            # is a demo-only subnet that was never wired for real external
+            # egress, unlike ovn-default (confirmed working, 0% loss) — so
+            # enp1s0 must stay the default route.
+            #
+            # enp1s0/enp2s0 naming is deterministic: KubeVirt assigns PCI slots
+            # by domain.devices.interfaces list order, so "default" (declared
+            # first) is always enp1s0 and "kubeovn0" (declared second) is always
+            # enp2s0 — no need to match dynamically by wildcard.
+            networkData: |-
+              version: 2
+              ethernets:
+                enp1s0:
+                  dhcp4: true
+                enp2s0:
+                  dhcp4: true
+                  dhcp4-overrides:
+                    use-routes: false

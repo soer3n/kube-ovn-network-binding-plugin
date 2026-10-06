@@ -1,0 +1,96 @@
+# Demo VM with a persistent root disk (CDI DataVolume) and a secondary NIC on
+# kube-ovn's VLAN underlay subnet (vlan100-subnet), attached via DRA + this
+# binding plugin. Same network setup as 04-vlan-vmi.yaml, but the guest
+# survives restarts: disk contents, SSH host keys and, through kube-ovn's
+# keep-vm-ip, the IP and MAC of the DRA NIC stay the same across stop/start.
+#
+# Requires CDI (containerized-data-importer) and a default StorageClass. On
+# kind's local-path (RWO) the VM cannot live-migrate; use the containerDisk
+# demos for migration.
+#
+# Reuses 03-vlan-resourceclaimtemplate.yaml: the VMI network is named
+# "vlan100", so domain.PodInterfaceName("vlan100") matches the template's
+# NicConfig.interfaceName. Each VM still gets its own generated claim.
+#
+#   ssh ubuntu@172.23.0.<x>
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: kube-ovn-dv-vm
+  namespace: default
+spec:
+  runStrategy: Always
+  dataVolumeTemplates:
+    - metadata:
+        name: kube-ovn-dv-vm-rootdisk
+      spec:
+        source:
+          registry:
+            url: docker://quay.io/containerdisks/ubuntu:22.04
+        storage:
+          # kind's local-path StorageProfile has no access modes, so set one
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 10Gi
+  template:
+    metadata:
+      annotations:
+        external.vlan100-subnet.ovn.kubernetes.io/default_route: "false"
+    spec:
+      resourceClaims:
+        - name: vlan100-claim
+          resourceClaimTemplateName: vlan100-claim-template
+      networks:
+        - name: default
+          pod: {}
+        - name: vlan100
+          resourceClaim:
+            claimName: vlan100-claim
+            requestName: nic0
+      domain:
+        devices:
+          interfaces:
+            - name: default
+              bridge: {}
+            - name: vlan100
+              binding:
+                name: kube-ovn-nic
+          disks:
+            - name: rootdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+        resources:
+          requests:
+            memory: 1Gi
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: rootdisk
+          dataVolume:
+            name: kube-ovn-dv-vm-rootdisk
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |-
+              #cloud-config
+              packages:
+                - qemu-guest-agent
+              runcmd:
+                - systemctl enable --now qemu-guest-agent
+              ssh_authorized_keys:
+                - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDSZgXCZBkA33B+pinjmwTYlYWwnii8WWX/V+zx2+Z/m+H903inWpbUxOOf4MmNCJXuftFohdQeTfmRmVT9ZMjQxs4RTcvgRlSIaKgaPF8ZIq3N8Ew0mZC8v5VT4IjMENA9h+OtdAXMI2UeGap7qa0YNTV8KQQUsQqXqouS8nkuHCblV/wNyAMB/PWIoVFA+yy+MSq2aZelaKW9TkF/B9GSYlXzBNilHBUF4Ew9kW5EOeXR1xD0Wgcc7E/H+lNqC0h3LG5m3flZKVLDXG511twZRr+cyogDURet7kTO878MyAdUfEQN7tsq382MoXwS74xtzDUip4l7nfHMbUM2N2QEEsStp8ReP2q79+s0i7TNT8mBkoiiYIHjAb0rRNPC78zfGFybR8Q5dUd67DxlR5EmmMPgP/1SotyfMj0MWF6R7ySDhvUQ8DyN8EwSmlHBQ0/BpKesNAn49Kd489Qm3ZJeYsUI+WrX/iQS2yx7J0r/Hc58oKbcA0aT/fIJRXsI9yUheCVQvkFRB78d0jt4YqUu16SPSWTm9mH1dExA6mD0AL+CwZRY+hiJ8avZfnc2Gu45o/bvsM6+hUTpfY4IdTjdKguz3qXJ3b6gNsOeyU5PKmN2TNFScUIzebh929Z91Y3dQg0wa0Ggc2xFLUPndHRKXmPWmprlr0hd8Sam+G6XjQ== soer3n@soer3n
+            # Keep enp1s0 (ovn-default, NAT'd egress) as the only default
+            # route, same as 04-vlan-vmi.yaml; the VLAN subnet is on-link.
+            networkData: |-
+              version: 2
+              ethernets:
+                enp1s0:
+                  dhcp4: true
+                enp2s0:
+                  dhcp4: true
+                  dhcp4-overrides:
+                    use-routes: false

@@ -8,12 +8,8 @@
 # sidecar; get this string right or the domain's <interface> will point at a
 # device that was never plumbed.
 #
-# This is deliberately NOT kubevirt.io/kubevirt/pkg/network/namescheme's
-# GenerateHashedInterfaceName ("pod" + 11 hex chars = 14 total): that is safe
-# for KubeVirt's own IFNAMSIZ budget, but kube-ovn-dra-driver's vethNames()
-# (pkg/plumbing/plumbing.go) computes containerID[:12-len(ifaceName)] with no
-# bounds check, so anything over 12 chars panics the driver with a negative
-# slice index. Our own PodInterfaceName() stays at "nic" + 8 hex chars = 11.
+# PodInterfaceName() is "nic" + 8 hex chars = 11 characters, within the 15
+# characters (IFNAMSIZ) the driver accepts for an interface name.
 #
 # Computed once via:
 #   cd kube-ovn-network-binding-plugin && go run - <<'EOF'

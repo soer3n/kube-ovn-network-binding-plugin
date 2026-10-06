@@ -4,12 +4,13 @@
 # ProviderNetwork's eth1 uplink) instead of the OVN overlay subnet used by
 # 00-resourceclaimtemplate.yaml.
 #
-# Unlike the overlay case, a VLAN underlay port is NOT bound to any OVN
-# Logical Switch Port — traffic egresses the physical/provider bridge
-# (br-external) directly, tagged with vlan100, onto the shared trunk. The
-# host itself has a matching 802.1q sub-interface (eth1.100, 172.23.0.253/24)
-# on that same trunk, so a VM's secondary NIC on this subnet is reachable
-# directly from the host by IP — no NAT, no OVN routing hop.
+# kube-ovn-controller creates the NIC's logical switch port on the VLAN
+# subnet's logical switch, and the driver plugs the NIC into br-int like an
+# overlay NIC. OVN forwards its traffic through the subnet's localnet port to
+# the provider bridge (br-external), tagged with vlan100, onto the shared
+# trunk. The FRR gateway has a matching 802.1q sub-interface (eth1.100,
+# 172.23.0.253/24) on that trunk, so a VM's secondary NIC on this subnet is
+# reachable by IP without NAT.
 #
 # Same naming contract as 00-resourceclaimtemplate.yaml: interfaceName must
 # equal domain.PodInterfaceName("vlan100") from this repo's sidecar, computed

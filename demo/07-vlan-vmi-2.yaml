@@ -1,0 +1,78 @@
+# Second VM (wrapping a VMI) on the same VLAN underlay subnet as
+# 04-vlan-vmi.yaml, for verifying VMI-to-VMI connectivity across the
+# DRA-attached secondary NIC over the provider bridge (east-west) — the
+# underlay counterpart to 06-vmi-2.yaml's OVN overlay pair. See
+# 04-vlan-vmi.yaml for the full rationale on every field below.
+#
+# The ResourceClaimTemplate is SHARED with 04-vlan-vmi.yaml's VM, not
+# duplicated — see 06-vmi-2.yaml's comment on why that's correct (interfaceName
+# is a function of the network NAME "vlan100", not of the VMI itself).
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: kube-ovn-vlan-vmi-2
+  namespace: default
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      annotations:
+        kubevirt.io/allow-pod-bridge-network-live-migration: "true"
+        external.vlan100-subnet.ovn.kubernetes.io/default_route: "false"
+    spec:
+      resourceClaims:
+        - name: vlan100-claim
+          resourceClaimTemplateName: vlan100-claim-template
+      networks:
+        - name: default
+          pod: {}
+        - name: vlan100
+          resourceClaim:
+            claimName: vlan100-claim
+            requestName: nic0
+      domain:
+        devices:
+          interfaces:
+            - name: default
+              bridge: {}
+            - name: vlan100
+              binding:
+                name: kube-ovn-nic
+          disks:
+            - name: containerdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+        resources:
+          requests:
+            memory: 1Gi
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: containerdisk
+          containerDisk:
+            image: quay.io/containerdisks/ubuntu:22.04
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |-
+              #cloud-config
+              packages:
+                - qemu-guest-agent
+              runcmd:
+                - systemctl enable --now qemu-guest-agent
+              ssh_authorized_keys:
+                - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDSZgXCZBkA33B+pinjmwTYlYWwnii8WWX/V+zx2+Z/m+H903inWpbUxOOf4MmNCJXuftFohdQeTfmRmVT9ZMjQxs4RTcvgRlSIaKgaPF8ZIq3N8Ew0mZC8v5VT4IjMENA9h+OtdAXMI2UeGap7qa0YNTV8KQQUsQqXqouS8nkuHCblV/wNyAMB/PWIoVFA+yy+MSq2aZelaKW9TkF/B9GSYlXzBNilHBUF4Ew9kW5EOeXR1xD0Wgcc7E/H+lNqC0h3LG5m3flZKVLDXG511twZRr+cyogDURet7kTO878MyAdUfEQN7tsq382MoXwS74xtzDUip4l7nfHMbUM2N2QEEsStp8ReP2q79+s0i7TNT8mBkoiiYIHjAb0rRNPC78zfGFybR8Q5dUd67DxlR5EmmMPgP/1SotyfMj0MWF6R7ySDhvUQ8DyN8EwSmlHBQ0/BpKesNAn49Kd489Qm3ZJeYsUI+WrX/iQS2yx7J0r/Hc58oKbcA0aT/fIJRXsI9yUheCVQvkFRB78d0jt4YqUu16SPSWTm9mH1dExA6mD0AL+CwZRY+hiJ8avZfnc2Gu45o/bvsM6+hUTpfY4IdTjdKguz3qXJ3b6gNsOeyU5PKmN2TNFScUIzebh929Z91Y3dQg0wa0Ggc2xFLUPndHRKXmPWmprlr0hd8Sam+G6XjQ== soer3n@soer3n
+            # Same default-route handling as 04-vlan-vmi.yaml: keep enp1s0
+            # (ovn-default) as the sole default route, drop it on enp2s0
+            # (vlan100-subnet) to avoid the duplicate-default-route ECMP issue.
+            networkData: |-
+              version: 2
+              ethernets:
+                enp1s0:
+                  dhcp4: true
+                enp2s0:
+                  dhcp4: true
+                  dhcp4-overrides:
+                    use-routes: false

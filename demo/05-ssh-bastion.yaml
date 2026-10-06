@@ -1,0 +1,42 @@
+# Minimal SSH bastion for reaching a VMI (e.g. 01-vmi.yaml) by its in-cluster
+# IP only — no NodePort/LoadBalancer/port-forward involved. Workflow:
+#   kubectl exec -it ssh-bastion -- sh
+#   ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ubuntu@<vmi-ip>
+#
+# UserKnownHostsFile=/dev/null is needed because /root/.ssh is mounted
+# read-only from the Secret, so ssh can't persist known_hosts there.
+#
+# The private key is NOT embedded in this manifest (it must not land in git).
+# Create the Secret first, from the private key matching the public key in the
+# demo VMs' cloud-init ssh_authorized_keys:
+#   kubectl create secret generic ssh-bastion-key \
+#     --from-file=id_rsa=$HOME/.ssh/id_rsa
+#
+# Base image is bare alpine (not a preloaded netshoot-style image) to keep
+# the pull small; openssh-client is installed once at container start.
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ssh-bastion
+  namespace: default
+spec:
+  containers:
+    - name: bastion
+      image: alpine:3.20
+      command:
+        - sh
+        - -c
+        - apk add --no-cache openssh-client >/dev/null && sleep infinity
+      volumeMounts:
+        - name: ssh-key
+          mountPath: /root/.ssh
+          readOnly: true
+  volumes:
+    - name: ssh-key
+      secret:
+        secretName: ssh-bastion-key
+        defaultMode: 0400
+        items:
+          - key: id_rsa
+            path: id_rsa
