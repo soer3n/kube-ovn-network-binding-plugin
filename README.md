@@ -92,10 +92,25 @@ for what each demo manifest actually demonstrates.
 
 ## Migrating to `managedTap` later
 
-Once a KubeVirt release resolves pod interface names for DRA networks in
-`pkg/network/namescheme` (not the case in `v1.9.0` and `v1.10.0-alpha.0`),
-KubeVirt can create the tap and the domain interface itself, and this sidecar
-is no longer needed. The move is not tested yet; expect these steps:
+This plugin is a workaround. With `domainAttachmentType: managedTap`, KubeVirt
+creates the tap and the domain interface itself, which would remove
+
+- this sidecar and its container in every `virt-launcher` pod,
+- the bridge, tap and DHCP server the driver adds to VM pods,
+
+and leave the tap wiring to KubeVirt's own, maintained code. It needs a
+KubeVirt release that resolves pod interface names for DRA networks in
+`pkg/network/namescheme`; `v1.9.0` and `v1.10.0-alpha.0` only handle Multus
+networks there.
+
+`managedTap` alone keeps a naming contract: the claim template would carry
+the name KubeVirt's namescheme expects instead of `domain.PodInterfaceName()`.
+The contract would go away if the driver reported the NIC's interface name,
+MAC and IPs in the ResourceClaim status (`status.devices[].networkData`) and
+KubeVirt read them from there. Whether KubeVirt's DRA network design (VEP-183)
+plans for that is still to be checked; it is the upstream change to propose.
+
+The move is not tested yet; expect these steps:
 
 1. **Driver:** `kube-ovn-dra-driver` currently wraps the NIC of every
    `virt-launcher` pod in its own bridge, tap and DHCP server. With
