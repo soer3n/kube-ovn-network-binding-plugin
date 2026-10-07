@@ -6,8 +6,8 @@ KIND_CLUSTER_NAME ?= nic-dra-demo
 DRA_DRIVER_DIR    ?= $(CURDIR)/../kube-ovn-dra-driver
 
 .PHONY: build test vet fmt image push clean \
-        kind-build-plugin-image kind-load-images kind-deploy-kubevirt \
-        kind-deploy-demo-vmi kind-demo kind-delete kind-status
+        kind-build-plugin-image kind-load-images kind-deploy-kubevirt kind-deploy-cdi \
+        kind-deploy-demo-vmi kind-deploy-demo-dv-vm kind-demo kind-delete kind-status
 
 build:
 	go build ./...
@@ -52,6 +52,22 @@ kind-deploy-demo-vmi:
 	kubectl apply -f demo/01-vmi.yaml
 	@echo "Waiting for the demo VMI to be Running ..."
 	kubectl wait --for=jsonpath='{.status.phase}'=Running vmi/kube-ovn-dra-vmi --timeout=180s
+
+## kind-deploy-cdi: install the CDI operator+CR (CDI_VERSION, see
+## demo/scripts/common.sh), needed for DataVolume root disks.
+kind-deploy-cdi:
+	KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) $(SCRIPTS_DIR)/deploy-cdi.sh
+
+## kind-deploy-demo-dv-vm: apply the VLAN ResourceClaimTemplate + the VM with a
+## DataVolume root disk. Needs KubeVirt, CDI and the VLAN underlay (the
+## containerlab topology of kube-ovn-dra-driver).
+kind-deploy-demo-dv-vm:
+	kubectl apply -f demo/03-vlan-resourceclaimtemplate.yaml
+	kubectl apply -f demo/08-dv-vlan-vm.yaml
+	@echo "Waiting for the root disk import and the VM to be Running ..."
+	kubectl wait --for=create dv/kube-ovn-dv-vm-rootdisk --timeout=120s
+	kubectl wait --for=jsonpath='{.status.phase}'=Succeeded dv/kube-ovn-dv-vm-rootdisk --timeout=900s
+	kubectl wait --for=jsonpath='{.status.phase}'=Running vmi/kube-ovn-dv-vm --timeout=600s
 
 ## kind-demo: build the base cluster (kind, kube-ovn, DeviceClass/subnets,
 ## the NIC driver) via the sibling kube-ovn-dra-driver repo, then layer

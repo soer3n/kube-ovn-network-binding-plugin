@@ -12,11 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Installs the KubeVirt operator + CR from the same pre-release tag this
-# repo's go.mod is pinned to (KUBEVIRT_VERSION, see common.sh) — that tag is
-# the first to publish the ResourceClaim network fields this plugin depends
-# on. Then patches in this plugin's binding registration + the
-# NetworkDevicesWithDRA feature gate.
+# Installs the KubeVirt operator + CR of the release this repo's go.mod is
+# pinned to (KUBEVIRT_VERSION, see common.sh), then patches in this plugin's
+# binding registration + the NetworkDevicesWithDRA feature gate.
 #
 # Usage: deploy-kubevirt.sh
 

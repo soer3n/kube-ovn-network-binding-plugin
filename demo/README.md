@@ -8,7 +8,8 @@ Prerequisites:
   `demo/nic-example/00-kube-ovn-subnets.yaml`),
 - KubeVirt v1.9 with this plugin registered via
   `../manifests/kubevirt-binding-config.yaml` (`make kind-deploy-kubevirt`),
-- for `08-dv-vlan-vm.yaml`, CDI and a default StorageClass.
+- for `08-dv-vlan-vm.yaml`, CDI (`make kind-deploy-cdi`) and a default
+  StorageClass (local-path in kind).
 
 | Files | What it shows |
 | --- | --- |
@@ -77,7 +78,7 @@ that one call.
 ```bash
 kubectl apply -f 00-resourceclaimtemplate.yaml -f 01-vmi.yaml -f 06-vmi-2.yaml
 kubectl apply -f 03-vlan-resourceclaimtemplate.yaml -f 04-vlan-vmi.yaml -f 07-vlan-vmi-2.yaml
-kubectl apply -f 08-dv-vlan-vm.yaml   # needs CDI
+make -C .. kind-deploy-cdi kind-deploy-demo-dv-vm   # CDI + DataVolume VM, waits for the import
 ```
 
 ## Verify

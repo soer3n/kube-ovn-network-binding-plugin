@@ -36,6 +36,8 @@ REPO_ROOT="$(cd -- "${SCRIPTS_DIR}/../.." &> /dev/null && pwd)"
 : ${PLUGIN_IMAGE:="${PLUGIN_IMAGE_REGISTRY}/${PLUGIN_IMAGE_NAME}:${PLUGIN_IMAGE_TAG}"}
 
 : ${KUBEVIRT_VERSION:="v1.9.0"}
+# CDI release for the DataVolume demo VM (08-dv-vlan-vm.yaml).
+: ${CDI_VERSION:="v1.66.1"}
 
 if [[ -z "${CONTAINER_TOOL}" ]]; then
     if [[ -n "$(which docker)" ]]; then
